@@ -1,56 +1,90 @@
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-import google.generativeai as genai
 from PIL import Image
 import os
 from dotenv import load_dotenv
+from google import genai
 
+# Load environment variables
 load_dotenv() 
+gemini_api_key = os.getenv("GEMINI_API_KEY")
 
-# Set up the Gemini API (make sure to keep your API key secret)
-gemini_api_key=os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=gemini_api_key)
+# Configure Gemini client
+client = genai.Client(api_key=gemini_api_key)
 
-def translate_to_hindi(text):
+# Available Indian languages for translation
+languages = {
+    "Hindi": "hi",
+    "Bengali": "bn",
+    "Telugu": "te",
+    "Tamil": "ta",
+    "Marathi": "mr",
+    "Gujarati": "gu",
+    "Kannada": "kn",
+    "Malayalam": "ml",
+    "Punjabi": "pa",
+    "Odia": "or",
+    "Urdu": "ur"
+}
+
+# Translation function
+def translate_to_language(text, lang_name):
     try:
-        model = genai.GenerativeModel('gemini-pro')
-        prompt = f"Translate the following plant disease name to Hindi: {text}"
-        response = model.generate_content(prompt)
-        return response.text
+        lang_code = languages[lang_name]
+        prompt = f"Translate the following plant disease name to {lang_name} ({lang_code}) in a short and simple way: {text}"
+        response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+        return response.text.strip().split('\n')[0]
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
         return "Translation failed"
 
+# Predict function
 def model_prediction(test_image):
     try:
         model = tf.keras.models.load_model("plant-diseases-model.keras")
         image = Image.open(test_image).convert('RGB')
         image = image.resize((128, 128))
         input_arr = tf.keras.preprocessing.image.img_to_array(image)
-        input_arr = np.array([input_arr])  # convert single image to batch
+        input_arr = input_arr / 255.0
+        input_arr = np.array([input_arr])
         predictions = model.predict(input_arr)
-        return np.argmax(predictions)  # return index of max element
+        return np.argmax(predictions), np.max(predictions)
     except Exception as e:
         st.error(f"Prediction error: {str(e)}")
-        return None
+        return None, None
 
+# Remedies function
+def get_remedies(disease_name):
+    try:
+        prompt = f"List some simple and practical remedies in bullet points for the plant disease: {disease_name}"
+        response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+        return response.text
+    except Exception as e:
+        st.error(f"Error fetching remedies: {str(e)}")
+        return "Could not retrieve remedies."
 
+# UI starts here
+st.header("🌿 Plant Disease Recognition & Remedies")
 
-st.header("Plant Disease Recognition")
-test_image = st.file_uploader("Choose an Image:", type=['jpg', 'jpeg', 'png'])
+# Language selection dropdown
+selected_language = st.selectbox("🌐 Select language for translation", list(languages.keys()))
 
+# Image upload
+test_image = st.file_uploader("📷 Upload a plant leaf image:", type=['jpg', 'jpeg', 'png'])
+
+# Show image preview
 if test_image is not None:
-    st.image(test_image, caption="Uploaded Image", use_column_width=True)
+    st.image(test_image, caption="🖼️ Uploaded Image", use_container_width=True)
 
-    if st.button("Predict"):
+    # Prediction button
+    if st.button("🔍 Predict"):
         st.snow()
-        st.write("Our Prediction")
-        
-        result_index = model_prediction(test_image)
-        
+        st.write("⏳ Running model...")
+
+        result_index, confidence = model_prediction(test_image)
+
         if result_index is not None:
-            # Reading Labels
             class_name = [
                 'Apple___Apple_scab', 'Apple___Black_rot', 'Apple___Cedar_apple_rust', 'Apple___healthy',
                 'Blueberry___healthy', 'Cherry_(including_sour)___Powdery_mildew', 
@@ -67,14 +101,23 @@ if test_image is not None:
                 'Tomato___Target_Spot', 'Tomato___Tomato_Yellow_Leaf_Curl_Virus', 'Tomato___Tomato_mosaic_virus',
                 'Tomato___healthy'
             ]
-            
+
             predicted_disease = class_name[result_index]
-            hindi_translation = translate_to_hindi(predicted_disease)
-            
-            st.success(f"Model's prediction: {predicted_disease}")
-            st.success(f"हिंदी में रोग का नाम: {hindi_translation}")
-        else:
-            st.warning("The model couldn't make a prediction.")
-            
-else:
-    st.info("Please upload an image to begin.")
+            translated_name = translate_to_language(predicted_disease, selected_language)
+
+            # Store in session state
+            st.session_state.predicted_disease = predicted_disease
+            st.session_state.translated_name = translated_name
+            st.session_state.confidence = confidence
+
+            st.success(f"✅ Model's Prediction: {predicted_disease}")
+            st.info(f"🌐 Translated to {selected_language}: {translated_name}")
+
+# Show results and remedies button if prediction exists
+if 'predicted_disease' in st.session_state:
+    if "healthy" not in st.session_state.predicted_disease.lower():
+        if st.button("🧪 Show Remedies"):
+            with st.spinner("Fetching remedies..."):
+                remedies = get_remedies(st.session_state.predicted_disease.replace("_", " "))
+                st.subheader("✅ Remedies:")
+                st.markdown(remedies)
