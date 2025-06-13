@@ -42,14 +42,13 @@ def translate_to_language(text, lang_name):
 # Predict function
 def model_prediction(test_image):
     try:
-        model = tf.keras.models.load_model("plant-diseases-model.keras")
-        image = Image.open(test_image).convert('RGB')
-        image = image.resize((128, 128))
-        input_arr = tf.keras.preprocessing.image.img_to_array(image)
-        input_arr = input_arr / 255.0
-        input_arr = np.array([input_arr])
-        predictions = model.predict(input_arr)
-        return np.argmax(predictions), np.max(predictions)
+       model = tf.keras.models.load_model("plant-diseases-model.keras")
+       image = tf.keras.preprocessing.image.load_img(test_image,target_size=(128,128))
+       input_arr = tf.keras.preprocessing.image.img_to_array(image)
+       input_arr = np.array([input_arr]) #convert single image to batch
+       predictions = model.predict(input_arr)
+       return np.argmax(predictions) #return index of max element
+       
     except Exception as e:
         st.error(f"Prediction error: {str(e)}")
         return None, None
@@ -82,7 +81,7 @@ if test_image is not None:
         st.snow()
         st.write("⏳ Running model...")
 
-        result_index, confidence = model_prediction(test_image)
+        result_index = model_prediction(test_image)
 
         if result_index is not None:
             class_name = [
@@ -108,7 +107,7 @@ if test_image is not None:
             # Store in session state
             st.session_state.predicted_disease = predicted_disease
             st.session_state.translated_name = translated_name
-            st.session_state.confidence = confidence
+            
 
             st.success(f"✅ Model's Prediction: {predicted_disease}")
             st.info(f"🌐 Translated to {selected_language}: {translated_name}")
